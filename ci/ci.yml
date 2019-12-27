@@ -1,0 +1,67 @@
+---
+resource_types:
+  - name: keyval
+    type: docker-image
+    source:
+      repository: swce/keyval-resource
+
+resources:
+  - name: keyval
+    type: keyval
+  - name: ((git_repo))
+    type: git
+    source:
+      uri: ((git_repo_url))
+      branch: ((git_branch))
+      private_key: ((git_key))
+
+jobs:
+  - name: regression tests
+    plan:
+      - get: ((git_repo))
+        trigger: true
+      - task: regression tests
+        config:
+          platform: linux
+          inputs:
+            - name: ((git_repo))
+          image_resource:
+            type: docker-image
+            source:
+              repository: ((run_test_base_image))
+          run:
+            user: root
+            path: ((run_test_file_path))
+            dir: ((git_repo))
+  - name: Tag
+    plan:
+      - get: ((git_repo))
+        trigger: true
+        passed: [regression tests]
+      - task: generate tags
+        config:
+          platform: linux
+          inputs:
+            - name: ((git_repo))
+          outputs:
+            - name : keyval
+          image_resource:
+            type: docker-image
+            source:
+              repository: alpine/git
+              tag: latest
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd $GIT_REPO
+                git_sha=$(git rev-parse HEAD)
+                cd ..
+                echo Tag=${git_sha:0:7} > keyval/keyval.properties
+          params:
+            GIT_REPO: ((git_repo))
+        on_success:
+          put: keyval
+          params:
+            file: keyval/keyval.properties
